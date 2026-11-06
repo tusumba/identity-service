@@ -7,14 +7,10 @@ info:
     Регистрация, вход и обновление токена, поиск пользователей,
     запросы в друзья, список друзей, приглашения друзей на мероприятия.
 
-    Внешний API доступен только через API Gateway под префиксом /v1. Внутренние пути /internal
-    в этот контракт не входят и описаны в openapi-internal.yaml: шлюз их не проксирует.
-    Доступ к /v1 - зарегистрированный пользователь, кроме /v1/auth/*.
-
     События в брокер: FriendRequested, EventInvitationSent.
     Закрывает требования: #18109, #18117, #18118, #18990, #18998.
 
-    Ошибки, включая ошибки валидации, возвращаются в едином формате tusumba-common:
+    Ошибки, включая ошибки валидации (422), возвращаются в едином формате tusumba-common:
     объект error с полями code (код для клиента) и message (текст для пользователя).
 
     Списки постраничные: параметры page (с 1) и size (по умолчанию 20, максимум 100),
@@ -52,24 +48,26 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuthResponse'
-        '400':
+        '422':
           description: |
-            VALIDATION_ERROR - «Заполните обязательные поля.», если не заполнено обязательное поле;
+            validation_error - «Заполните обязательные поля.», если не заполнено обязательное поле;
             иначе «Введите корректный email или телефон.»
+            Поля проверяет сам Identity, чтобы вернуть тексты требования вместо общего текста
+            валидации tusumba-common.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
         '409':
           description: |
-            USER_ALREADY_EXISTS - «Пользователь с такими данными уже зарегистрирован.»
+            user_already_exists - «Пользователь с такими данными уже зарегистрирован.»
             Email или ник уже заняты.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
         '500':
-          description: INTERNAL_ERROR - «Не удалось зарегистрироваться. Попробуйте позже.»
+          description: internal_error - «Не удалось зарегистрироваться. Попробуйте позже.»
           content:
             application/json:
               schema:
@@ -98,22 +96,25 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuthResponse'
-        '400':
-          description: VALIDATION_ERROR - «Заполните оба поля.»
+        '422':
+          description: |
+            validation_error - «Заполните оба поля.»
+            Поля проверяет сам Identity, чтобы вернуть текст требования вместо общего текста
+            валидации tusumba-common.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
         '401':
           description: |
-            INVALID_CREDENTIALS - «Неверный логин или пароль.»
+            invalid_credentials - «Неверный логин или пароль.»
             Возвращается одинаково, если пользователь не найден и если пароль неверен.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
         '500':
-          description: INTERNAL_ERROR - «Не удалось войти. Попробуйте позже.»
+          description: internal_error - «Не удалось войти. Попробуйте позже.»
           content:
             application/json:
               schema:
@@ -126,7 +127,7 @@ paths:
         Система обменивает действующий refresh-токен на новую пару access и refresh.
         Refresh-токен - JWT RS256 с typ = refresh; хранится только у клиента, в базе не сохраняется.
         Identity проверяет подпись, срок exp, typ = refresh и что пользователь из sub существует.
-        Refresh-токен ролей не содержит: global_role для нового access-токена берётся из базы
+        Refresh-токен ролей не содержит: roles для нового access-токена берутся из базы
         (users.global_role), поэтому смена роли действует со следующего обновления.
         Отзыв refresh-токена до истечения срока не поддерживается.
       security: []
@@ -143,11 +144,11 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TokenPair'
-        '400':
+        '422':
           $ref: '#/components/responses/ValidationError'
         '401':
           description: |
-            INVALID_REFRESH_TOKEN - «Сессия истекла. Войдите снова.»
+            invalid_refresh_token - «Сессия истекла. Войдите снова.»
             Подпись неверна, срок истёк, typ не refresh или пользователь не найден.
           content:
             application/json:
@@ -182,7 +183,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/UserList'
-        '400':
+        '422':
           $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/Unauthorized'
@@ -217,7 +218,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/FriendRequestList'
-        '400':
+        '422':
           $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/Unauthorized'
@@ -249,34 +250,33 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/FriendRequest'
-        '400':
-          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
-          description: USER_NOT_FOUND - «Пользователь не найден.»
+          description: user_not_found - «Пользователь не найден.»
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
         '409':
           description: |
-            ALREADY_FRIENDS - «Пользователь уже у вас в друзьях.»
-            FRIEND_REQUEST_ALREADY_EXISTS - «Запрос в друзья уже отправлен.»
+            already_friends - «Пользователь уже у вас в друзьях.»
+            friend_request_already_exists - «Запрос в друзья уже отправлен.»
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
         '422':
           description: |
-            CANNOT_FRIEND_SELF - «Нельзя добавить в друзья самого себя.»
+            cannot_friend_self - «Нельзя добавить в друзья самого себя.»
             Адресат совпадает с текущим пользователем; ни запрос, ни дружба не создаются.
+            validation_error - тело запроса не прошло проверку (текст из tusumba-common).
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
         '500':
-          description: INTERNAL_ERROR - «Не удалось отправить запрос в друзья. Попробуйте позже.»
+          description: internal_error - «Не удалось отправить запрос в друзья. Попробуйте позже.»
           content:
             application/json:
               schema:
@@ -349,7 +349,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/FriendList'
-        '400':
+        '422':
           $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/Unauthorized'
@@ -388,17 +388,19 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EventInvitation'
-        '400':
+        '422':
           $ref: '#/components/responses/ValidationError'
         '401':
-          description: UNAUTHORIZED - «Войдите, чтобы приглашать друзей.»
+          description: |
+            not_authenticated, token_expired, invalid_token - ошибки проверки токена из tusumba-common.
+            Текст «Войдите, чтобы приглашать друзей.» из требования #18118 показывает клиент.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
         '403':
           description: |
-            NOT_FRIENDS - «Приглашать можно только друзей.»
+            not_friends - «Приглашать можно только друзей.»
             Адресат не друг; в том числе если адресат - сам пользователь.
           content:
             application/json:
@@ -406,20 +408,20 @@ paths:
                 $ref: '#/components/schemas/Error'
         '404':
           description: |
-            EVENT_NOT_FOUND - «Мероприятие не найдено.» (не существует или не опубликовано)
-            USER_NOT_FOUND - «Пользователь не найден.»
+            event_not_found - «Мероприятие не найдено.» (не существует или не опубликовано)
+            user_not_found - «Пользователь не найден.»
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
         '409':
-          description: INVITATION_ALREADY_EXISTS - «Приглашение уже отправлено.»
+          description: invitation_already_exists - «Приглашение уже отправлено.»
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
         '500':
-          description: INTERNAL_ERROR - «Не удалось отправить приглашение. Попробуйте позже.»
+          description: internal_error - «Не удалось отправить приглашение. Попробуйте позже.»
           content:
             application/json:
               schema:
@@ -439,7 +441,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EventInvitationList'
-        '400':
+        '422':
           $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/Unauthorized'
@@ -454,9 +456,10 @@ components:
       description: |
         Access-токен: JWT RS256, выпускается Identity. Каждый сервис проверяет его зависимостью
         get_current_user из tusumba-common по публичному ключу Identity (задаётся переменной
-        окружения) без обращения к базе. Claims: sub - id пользователя, global_role - user
-        или moderator, typ = access, exp. Сервисы принимают только токены с typ = access.
-        global_role записывается в access-токен из базы (users.global_role) при каждом выпуске:
+        окружения JWT_PUBLIC_KEY) без обращения к базе.
+        Claims: sub - id пользователя, roles - список ролей ([user] или [moderator]),
+        typ = access, exp. Сервисы принимают только токены с typ = access.
+        roles записываются в access-токен из базы ([users.global_role]) при каждом выпуске:
         при входе, регистрации и обновлении.
   parameters:
     Page:
@@ -486,20 +489,26 @@ components:
         format: uuid
   responses:
     ValidationError:
-      description: VALIDATION_ERROR - «Некорректные данные запроса.»
+      description: |
+        validation_error - тело или параметры запроса не прошли проверку.
+        Ответ формирует обработчик ошибок tusumba-common (install_error_handlers).
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
     Unauthorized:
-      description: UNAUTHORIZED - «Требуется авторизация.»
+      description: |
+        Ошибки проверки токена из tusumba-common:
+        not_authenticated - «Требуется авторизация» (нет заголовка Authorization);
+        token_expired - «Срок действия токена истёк» (клиенту нужно вызвать /v1/auth/refresh);
+        invalid_token - «Недействительный токен» (подпись неверна, токен испорчен или не access).
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
     FriendRequestNotFound:
       description: |
-        FRIEND_REQUEST_NOT_FOUND - «Запрос в друзья не найден.»
+        friend_request_not_found - «Запрос в друзья не найден.»
         Запроса нет или он адресован другому пользователю.
       content:
         application/json:
@@ -507,14 +516,14 @@ components:
             $ref: '#/components/schemas/Error'
     FriendRequestNotPending:
       description: |
-        FRIEND_REQUEST_NOT_PENDING - «Запрос уже обработан.»
+        friend_request_not_pending - «Запрос уже обработан.»
         Решение не меняется; текущий статус клиент получает из GET /v1/friend-requests.
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
     InternalError:
-      description: INTERNAL_ERROR - «Произошла ошибка. Попробуйте позже.»
+      description: internal_error - «Произошла ошибка. Попробуйте позже.»
       content:
         application/json:
           schema:
@@ -749,21 +758,23 @@ components:
               type: string
               description: Код ошибки для клиента
               enum:
-                - VALIDATION_ERROR
-                - UNAUTHORIZED
-                - INVALID_CREDENTIALS
-                - INVALID_REFRESH_TOKEN
-                - NOT_FRIENDS
-                - USER_NOT_FOUND
-                - FRIEND_REQUEST_NOT_FOUND
-                - EVENT_NOT_FOUND
-                - USER_ALREADY_EXISTS
-                - ALREADY_FRIENDS
-                - FRIEND_REQUEST_ALREADY_EXISTS
-                - FRIEND_REQUEST_NOT_PENDING
-                - INVITATION_ALREADY_EXISTS
-                - CANNOT_FRIEND_SELF
-                - INTERNAL_ERROR
+                - validation_error
+                - not_authenticated
+                - token_expired
+                - invalid_token
+                - invalid_credentials
+                - invalid_refresh_token
+                - not_friends
+                - user_not_found
+                - friend_request_not_found
+                - event_not_found
+                - user_already_exists
+                - already_friends
+                - friend_request_already_exists
+                - friend_request_not_pending
+                - invitation_already_exists
+                - cannot_friend_self
+                - internal_error
             message:
               type: string
               description: Текст для пользователя

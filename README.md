@@ -4,14 +4,6 @@
 
 **Ответственный:** Артем Вдовин (задача #18888).
 
-# Identity & Social
-
-Сервис учётных записей, друзей и приглашений на мероприятия платформы Tusumba.
-
-# Identity & Social
-
-Сервис учётных записей, друзей и приглашений на мероприятия платформы Tusumba.
-
 ## Что делает
 
 - регистрация, вход по почте или нику, выпуск и обновление JWT: access- и refresh-токен (RS256, закрытый ключ только у Identity, публичный ключ используют все остальные сервисы);
@@ -53,7 +45,7 @@ Python 3.12, FastAPI, SQLAlchemy 2 (async), Alembic, PostgreSQL 16, RabbitMQ (Fa
 ## Документация
 
 - Внешний API: [openapi.yaml](docs/openapi.yaml), внутренний API: [openapi-internal.yaml](docs/openapi-internal.yaml) (#18888).
-- Модель данных: [identity-data-model.md](docs/data-model.md) (#18888).
+- Модель данных: [data-model.md](docs/data-model.md) (#18888).
 - Wiki проекта: https://ai.nsu.ru/projects/tusumba/wiki/Архитектура.
 - Задачи ведутся в Redmine: https://ai.nsu.ru/projects/tusumba. Issues и Wiki GitHub выключены.
 

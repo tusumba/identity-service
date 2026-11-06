@@ -1,6 +1,6 @@
 # Модель данных Identity & Social
 
-Задача: [#18888 - OpenAPI v1 и модель данных: Identity & Social](https://ai.nsu.ru/issues/<номер>).
+Задача: [#18888 - OpenAPI v1 и модель данных: Identity & Social](https://ai.nsu.ru/issues/18888).
 Источник: [архитектура Tusumba](https://ai.nsu.ru/projects/tusumba/wiki/Архитектура),
 раздел «Identity & Social (identity_db)».
 
@@ -26,7 +26,7 @@
 
 - `password_hash` - хеш пароля, сам пароль не хранится;
 - `nickname` - латиница, цифры, `_`, `.`, `-`, 3-32 символа; символа `@` в нике нет, поэтому логин с `@` ищется по `email`, остальные - по `nickname`;
-- `global_role` - по умолчанию `user`; записывается в access-токен при каждом выпуске.
+- `global_role` - по умолчанию `user`; попадает в access-токен как `roles: [global_role]` при каждом выпуске.
 
 Регистрация по телефону текущей моделью не предусмотрена.
 
@@ -85,9 +85,10 @@
 ## Токены
 
 Отдельной таблицы нет. Access- и refresh-токены - JWT RS256, подписываются закрытым ключом Identity
-и в базе не хранятся. В access-токене: `sub`, `global_role`, `typ = access`, `exp`;
-в refresh-токене: `sub`, `typ = refresh`, `exp`, ролей нет. При обновлении `global_role`
-берётся из `users`. Отзыв refresh-токена до истечения срока не поддерживается.
+и в базе не хранятся. В access-токене: `sub`, `roles` (список: `[users.global_role]`), `typ = access`, `exp`;
+в refresh-токене: `sub`, `typ = refresh`, `exp`, ролей нет. При обновлении `roles`
+берутся из `users`. Отзыв refresh-токена до истечения срока не поддерживается.
+Access-токен проверяет `get_current_user` из tusumba-common по ключу из `JWT_PUBLIC_KEY`.
 
 ## Внешние связи
 
@@ -110,9 +111,9 @@
    и создаётся строка `friendships` с упорядоченной парой (`user_low_id` < `user_high_id`).
 3. `POST /v1/friend-requests/{id}/decline` (только адресат): `status` → `declined`, дружба не создаётся.
 4. Запрос, адресованный другому пользователю, для `accept` и `decline` считается ненайденным
-   (`FRIEND_REQUEST_NOT_FOUND`).
+   (`friend_request_not_found`).
 5. Повторный `accept` или `decline` обработанного запроса не меняет решение и возвращает
-   `FRIEND_REQUEST_NOT_PENDING`.
+   `friend_request_not_pending`.
 
 ## Приглашение на мероприятие
 
@@ -136,7 +137,7 @@
 | GET /v1/me/friends | Мои друзья | Пользователь |
 | POST /v1/events/{id}/invitations | Приглашение друга на мероприятие | Пользователь |
 | GET /v1/me/invitations | Мои входящие приглашения | Пользователь |
-| GET /internal/users/{id}/friends | Друзья пользователя для Ticketing | Сервисы, сервисный токен |
+| GET /internal/users/{id}/friends | Друзья пользователя для Ticketing | Сервисы, `X-Service-Token` |
 
 ## Коды ошибок
 
@@ -144,19 +145,21 @@
 
 | HTTP | code | Когда |
 |---|---|---|
-| 400 | VALIDATION_ERROR | Тело или параметры запроса не прошли проверку |
-| 401 | UNAUTHORIZED | Нет токена или токен недействителен |
-| 401 | INVALID_CREDENTIALS | Неверный логин или пароль |
-| 401 | INVALID_REFRESH_TOKEN | Refresh-токен недействителен или истёк |
-| 403 | NOT_FRIENDS | Приглашение пользователя, который не является другом, в том числе самого себя |
-| 403 | INVALID_SERVICE_TOKEN | Внутренний вызов без верного сервисного токена |
-| 404 | USER_NOT_FOUND | Пользователь не найден |
-| 404 | FRIEND_REQUEST_NOT_FOUND | Запрос в друзья не найден |
-| 404 | EVENT_NOT_FOUND | Мероприятие не найдено или не опубликовано |
-| 409 | USER_ALREADY_EXISTS | Email или ник уже заняты |
-| 409 | ALREADY_FRIENDS | Пользователи уже друзья |
-| 409 | FRIEND_REQUEST_ALREADY_EXISTS | Между пользователями уже есть запрос `pending` |
-| 409 | FRIEND_REQUEST_NOT_PENDING | Запрос уже принят или отклонён |
-| 409 | INVITATION_ALREADY_EXISTS | Друг уже приглашён на это мероприятие |
-| 422 | CANNOT_FRIEND_SELF | Запрос в друзья самому себе |
-| 500 | INTERNAL_ERROR | Внутренняя ошибка или недоступен зависимый сервис |
+| 401 | not_authenticated | Нет заголовка Authorization (tusumba-common) |
+| 401 | token_expired | Срок действия access-токена истёк (tusumba-common) |
+| 401 | invalid_token | Токен недействителен или не access (tusumba-common) |
+| 401 | invalid_credentials | Неверный логин или пароль |
+| 401 | invalid_refresh_token | Refresh-токен недействителен или истёк |
+| 403 | not_friends | Приглашение пользователя, который не является другом, в том числе самого себя |
+| 403 | forbidden | Внутренний вызов без верного сервисного токена (tusumba-common) |
+| 404 | user_not_found | Пользователь не найден |
+| 404 | friend_request_not_found | Запрос в друзья не найден |
+| 404 | event_not_found | Мероприятие не найдено или не опубликовано |
+| 409 | user_already_exists | Email или ник уже заняты |
+| 409 | already_friends | Пользователи уже друзья |
+| 409 | friend_request_already_exists | Между пользователями уже есть запрос `pending` |
+| 409 | friend_request_not_pending | Запрос уже принят или отклонён |
+| 409 | invitation_already_exists | Друг уже приглашён на это мероприятие |
+| 422 | validation_error | Тело или параметры запроса не прошли проверку (tusumba-common) |
+| 422 | cannot_friend_self | Запрос в друзья самому себе |
+| 500 | internal_error | Внутренняя ошибка или недоступен зависимый сервис |

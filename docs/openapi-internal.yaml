@@ -4,7 +4,10 @@ info:
   version: 1.0.0
   description: |
     Внутренний API сервиса Identity & Social - только для других сервисов.
+    Каждый вызов требует сервисный токен в заголовке.
     Внешний API описан в openapi.yaml.
+
+    Ошибки возвращаются в едином формате tusumba-common: объект error с полями code и message.
   x-task: https://ai.nsu.ru/issues/18888
 externalDocs:
   description: Архитектура Tusumba
@@ -36,19 +39,25 @@ paths:
               schema:
                 $ref: '#/components/schemas/FriendList'
         '403':
-          description: INVALID_SERVICE_TOKEN - сервисный токен отсутствует или неверен
+          description: forbidden - сервисный токен отсутствует или неверен (require_service)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
         '404':
-          description: USER_NOT_FOUND - пользователь не найден
+          description: user_not_found - пользователь не найден
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: validation_error - id не является uuid
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
         '500':
-          description: INTERNAL_ERROR - внутренняя ошибка
+          description: internal_error - внутренняя ошибка
           content:
             application/json:
               schema:
@@ -60,9 +69,9 @@ components:
       in: header
       name: X-Service-Token
       description: |
-        Сервисный токен для внутренних вызовов. Значение задаётся переменной окружения.
-        HTTP-клиент tusumba-common добавляет заголовок сам, эндпоинт проверяет его зависимостью
-        require_service; запрос без верного токена получает 403.
+        Общий сервисный токен, значение из переменной окружения SERVICE_TOKEN.
+        InternalClient из tusumba-common добавляет заголовок сам, эндпоинт проверяет его
+        зависимостью require_service; запрос без верного токена получает 403 forbidden.
   schemas:
     UserPublic:
       type: object
@@ -92,6 +101,6 @@ components:
           properties:
             code:
               type: string
-              enum: [INVALID_SERVICE_TOKEN, USER_NOT_FOUND, INTERNAL_ERROR]
+              enum: [forbidden, user_not_found, validation_error, internal_error]
             message:
               type: string
