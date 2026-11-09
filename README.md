@@ -6,25 +6,37 @@
 
 ## Что делает
 
-- регистрация, вход, выпуск и обновление JWT (RS256, публичный ключ используют все остальные сервисы);
-- поиск пользователей, запросы в друзья, список друзей;
+- регистрация, вход по почте или нику, выпуск и обновление JWT: access- и refresh-токен (RS256, закрытый ключ только у Identity, публичный ключ используют все остальные сервисы);
+- поиск пользователей со статусом дружбы, запросы в друзья (отправка, входящие и отправленные, принятие и отклонение), список друзей;
 - приглашение друга на мероприятие и входящие приглашения.
 
 База данных `identity_db`: `users`, `friend_requests`, `friendships`, `event_invitations`.
 
 ## API
 
-Внешний (через шлюз): `POST /v1/auth/register`, `/login`, `/refresh`; `GET /v1/users?query=`; `POST /v1/friend-requests`, `.../{id}/accept`, `.../{id}/decline`; `GET /v1/me/friends`; `POST /v1/events/{id}/invitations`; `GET /v1/me/invitations`.
+Внешний (через шлюз):
 
-Внутренний (только для сервисов): `GET /internal/users/{id}/friends`, нужен Ticketing для списка «кто из друзей идёт».
+- `POST /v1/auth/register` - регистрация;
+- `POST /v1/auth/login` - вход;
+- `POST /v1/auth/refresh` - обновление токенов;
+- `GET /v1/users?query=` - поиск пользователей;
+- `GET /v1/friend-requests` - входящие или отправленные запросы в друзья;
+- `POST /v1/friend-requests` - отправка запроса в друзья;
+- `POST /v1/friend-requests/{id}/accept` - принятие запроса;
+- `POST /v1/friend-requests/{id}/decline` - отклонение запроса;
+- `GET /v1/me/friends` - список друзей;
+- `POST /v1/events/{id}/invitations` - приглашение друга на мероприятие;
+- `GET /v1/me/invitations` - входящие приглашения.
 
-События в брокер: `FriendRequested`, `EventInvitationSent`.
+Внутренний (только для сервисов, с сервисным токеном): `GET /internal/users/{id}/friends`, нужен Ticketing для списка «кто из друзей идёт».
 
-Закрывает требования: #18109, #18117, #18118.
+События в RabbitMQ: `FriendRequested`, `EventInvitationSent`.
+
+Закрывает требования: #18109, #18117, #18118, #18990, #18998.
 
 ## Стек
 
-Python 3.12, FastAPI, SQLAlchemy 2 (async), Alembic, PostgreSQL 16, RabbitMQ (FastStream).
+Python 3.12, FastAPI, SQLAlchemy 2 (async), Alembic, PostgreSQL 16, RabbitMQ (FastStream), tusumba-common (проверка JWT, сервисный токен, формат ошибок).
 
 ## Запуск
 
@@ -32,7 +44,10 @@ Python 3.12, FastAPI, SQLAlchemy 2 (async), Alembic, PostgreSQL 16, RabbitMQ (Fa
 
 ## Документация
 
-Wiki проекта: https://ai.nsu.ru/projects/tusumba/wiki/Архитектура. Контракт API: OpenAPI v1 (#18888). Задачи ведутся в Redmine: https://ai.nsu.ru/projects/tusumba. Issues и Wiki GitHub выключены.
+- Внешний API: [openapi.yaml](docs/openapi.yaml), внутренний API: [openapi-internal.yaml](docs/openapi-internal.yaml) (#18888).
+- Модель данных: [data-model.md](docs/data-model.md) (#18888).
+- Wiki проекта: https://ai.nsu.ru/projects/tusumba/wiki/Архитектура.
+- Задачи ведутся в Redmine: https://ai.nsu.ru/projects/tusumba. Issues и Wiki GitHub выключены.
 
 ## Правила работы
 

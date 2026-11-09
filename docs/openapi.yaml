@@ -1,0 +1,780 @@
+openapi: 3.0.3
+info:
+  title: Tusumba Identity & Social API
+  version: 1.0.0
+  description: |
+    API сервиса Identity & Social по разделу «Пользователи, друзья и приглашения» архитектуры Tusumba.
+    Регистрация, вход и обновление токена, поиск пользователей,
+    запросы в друзья, список друзей, приглашения друзей на мероприятия.
+
+    События в брокер: FriendRequested, EventInvitationSent.
+    Закрывает требования: #18109, #18117, #18118, #18990, #18998.
+
+    Ошибки, включая ошибки валидации (422), возвращаются в едином формате tusumba-common:
+    объект error с полями code (код для клиента) и message (текст для пользователя).
+
+    Списки постраничные: параметры page (с 1) и size (по умолчанию 20, максимум 100),
+    в ответе items, total, page, size. В вики указана cursor-пагинация; единый вариант
+    нужно утвердить до реализации клиента.
+  x-task: https://ai.nsu.ru/issues/18888
+externalDocs:
+  description: Архитектура Tusumba
+  url: https://ai.nsu.ru/projects/tusumba/wiki/Архитектура
+security:
+  - BearerAuth: []
+paths:
+  /v1/auth/register:
+    post:
+      operationId: register
+      summary: Регистрация по email, паролю и нику
+      description: |
+        Система создаёт учётную запись с ролью user и сразу выполняет вход.
+        Регистрация по телефону не предусмотрена.
+        Ошибки из требования #18109:
+        «Заполните обязательные поля.», «Введите корректный email или телефон.»,
+        «Пользователь с такими данными уже зарегистрирован.»,
+        «Не удалось зарегистрироваться. Попробуйте позже.»
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Учётная запись создана, вход выполнен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '422':
+          description: |
+            validation_error - «Заполните обязательные поля.», если не заполнено обязательное поле;
+            иначе «Введите корректный email или телефон.»
+            Поля проверяет сам Identity, чтобы вернуть тексты требования вместо общего текста
+            валидации tusumba-common.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: |
+            user_already_exists - «Пользователь с такими данными уже зарегистрирован.»
+            Email или ник уже заняты.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: internal_error - «Не удалось зарегистрироваться. Попробуйте позже.»
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/auth/login:
+    post:
+      operationId: login
+      summary: Вход по логину (почта или ник) и паролю
+      description: |
+        Система проверяет логин и пароль, авторизует пользователя на этом устройстве и выдаёт
+        пару токенов. Логин - почта или ник: значение с символом @ ищется по email, иначе по нику
+        (в нике @ недопустим). Поиск без учёта регистра.
+        Ошибки из требования #18990:
+        «Заполните оба поля.», «Неверный логин или пароль.», «Не удалось войти. Попробуйте позже.»
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Вход выполнен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '422':
+          description: |
+            validation_error - «Заполните оба поля.»
+            Поля проверяет сам Identity, чтобы вернуть текст требования вместо общего текста
+            валидации tusumba-common.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: |
+            invalid_credentials - «Неверный логин или пароль.»
+            Возвращается одинаково, если пользователь не найден и если пароль неверен.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: internal_error - «Не удалось войти. Попробуйте позже.»
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/auth/refresh:
+    post:
+      operationId: refreshToken
+      summary: Обновить пару токенов
+      description: |
+        Система обменивает действующий refresh-токен на новую пару access и refresh.
+        Refresh-токен - JWT RS256 с typ = refresh; хранится только у клиента, в базе не сохраняется.
+        Identity проверяет подпись, срок exp, typ = refresh и что пользователь из sub существует.
+        Refresh-токен ролей не содержит: roles для нового access-токена берутся из базы
+        (users.global_role), поэтому смена роли действует со следующего обновления.
+        Отзыв refresh-токена до истечения срока не поддерживается.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '200':
+          description: Новая пара токенов
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPair'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          description: |
+            invalid_refresh_token - «Сессия истекла. Войдите снова.»
+            Подпись неверна, срок истёк, typ не refresh или пользователь не найден.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/users:
+    get:
+      operationId: searchUsers
+      summary: Поиск пользователей
+      description: |
+        Поиск по нику без учёта регистра, по вхождению подстроки.
+        Email других пользователей не возвращается, текущий пользователь в выдачу не попадает.
+        У каждого найденного указан статус дружбы с текущим пользователем, чтобы клиент сразу
+        показал кнопку «Добавить в друзья» или текущий статус запроса или дружбы (требование #18117).
+      parameters:
+        - name: query
+          in: query
+          required: true
+          description: Строка поиска по нику
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 32
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Страница найденных пользователей
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserList'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/friend-requests:
+    get:
+      operationId: listFriendRequests
+      summary: Список запросов в друзья
+      description: |
+        Входящие запросы (direction = incoming, по умолчанию) - только ожидающие ответа (pending),
+        чтобы пользователь мог принять или отклонить их.
+        Отправленные запросы (direction = outgoing) - все отправленные пользователем запросы
+        с текущим статусом: pending, accepted или declined.
+        Списки постраничные, новые запросы первыми. Если запросов нет, возвращается пустой items
+        и total = 0 - клиент показывает пустое состояние.
+        Требование #18998.
+      parameters:
+        - name: direction
+          in: query
+          description: incoming - входящие запросы, outgoing - отправленные запросы
+          schema:
+            type: string
+            enum: [incoming, outgoing]
+            default: incoming
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Страница запросов в друзья
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FriendRequestList'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      operationId: createFriendRequest
+      summary: Отправить запрос в друзья
+      description: |
+        Система сохраняет запрос со статусом pending и публикует в брокер событие FriendRequested,
+        по которому адресат получает уведомление.
+        Запрос не создаётся, если адресат - сам пользователь, пользователи уже друзья
+        или между ними уже есть ожидающий запрос в любую сторону; повторный запрос не создаётся.
+        После отклонения можно отправить новый запрос.
+        Ошибки из требования #18117:
+        «Пользователь уже у вас в друзьях.», «Запрос в друзья уже отправлен.»,
+        «Пользователь не найден.», «Не удалось отправить запрос в друзья. Попробуйте позже.»,
+        «Нельзя добавить в друзья самого себя.»
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecipientRequest'
+      responses:
+        '201':
+          description: Запрос в друзья отправлен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FriendRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: user_not_found - «Пользователь не найден.»
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: |
+            already_friends - «Пользователь уже у вас в друзьях.»
+            friend_request_already_exists - «Запрос в друзья уже отправлен.»
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: |
+            cannot_friend_self - «Нельзя добавить в друзья самого себя.»
+            Адресат совпадает с текущим пользователем; ни запрос, ни дружба не создаются.
+            validation_error - тело запроса не прошло проверку (текст из tusumba-common).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: internal_error - «Не удалось отправить запрос в друзья. Попробуйте позже.»
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/friend-requests/{id}/accept:
+    post:
+      operationId: acceptFriendRequest
+      summary: Принять запрос в друзья
+      description: |
+        Доступно только адресату. Система в одной транзакции переводит запрос в accepted
+        и добавляет пару в friendships - пользователи становятся друзьями друг друга.
+        Запрос, адресованный другому пользователю, считается ненайденным.
+        Повторное принятие или отклонение обработанного запроса не меняет решение
+        и не создаёт повторную дружбу. Требование #18998.
+      parameters:
+        - $ref: '#/components/parameters/FriendRequestId'
+      responses:
+        '200':
+          description: Запрос принят
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FriendRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/FriendRequestNotFound'
+        '409':
+          $ref: '#/components/responses/FriendRequestNotPending'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/friend-requests/{id}/decline:
+    post:
+      operationId: declineFriendRequest
+      summary: Отклонить запрос в друзья
+      description: |
+        Доступно только адресату. Система переводит запрос в declined, дружба не создаётся.
+        Запрос, адресованный другому пользователю, считается ненайденным.
+        Повторное принятие или отклонение обработанного запроса не меняет решение.
+        Требование #18998.
+      parameters:
+        - $ref: '#/components/parameters/FriendRequestId'
+      responses:
+        '200':
+          description: Запрос отклонён
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FriendRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/FriendRequestNotFound'
+        '409':
+          $ref: '#/components/responses/FriendRequestNotPending'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/me/friends:
+    get:
+      operationId: listMyFriends
+      summary: Список друзей
+      description: Друзья текущего пользователя, недавно добавленные первыми.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Страница списка друзей
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FriendList'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/events/{id}/invitations:
+    post:
+      operationId: inviteFriendToEvent
+      summary: Пригласить друга на мероприятие
+      description: |
+        Приглашать можно только друзей. Мероприятие должно существовать и быть опубликовано -
+        это проверяется вызовом сервиса Events (events_db - другая база, внешнего ключа нет).
+        Система сохраняет приглашение и публикует в брокер событие EventInvitationSent,
+        по которому друг получает уведомление.
+        Ошибки из требования #18118:
+        «Приглашение уже отправлено.», «Не удалось отправить приглашение. Попробуйте позже.»,
+        «Войдите, чтобы приглашать друзей.»
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Идентификатор мероприятия (events_db.events.id)
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecipientRequest'
+      responses:
+        '201':
+          description: Приглашение отправлено
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventInvitation'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          description: |
+            not_authenticated, token_expired, invalid_token - ошибки проверки токена из tusumba-common.
+            Текст «Войдите, чтобы приглашать друзей.» из требования #18118 показывает клиент.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: |
+            not_friends - «Приглашать можно только друзей.»
+            Адресат не друг; в том числе если адресат - сам пользователь.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: |
+            event_not_found - «Мероприятие не найдено.» (не существует или не опубликовано)
+            user_not_found - «Пользователь не найден.»
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: invitation_already_exists - «Приглашение уже отправлено.»
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: internal_error - «Не удалось отправить приглашение. Попробуйте позже.»
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/me/invitations:
+    get:
+      operationId: listMyInvitations
+      summary: Входящие приглашения на мероприятия
+      description: Приглашения, адресованные текущему пользователю, новые первыми.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Страница входящих приглашений
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventInvitationList'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Access-токен: JWT RS256, выпускается Identity. Каждый сервис проверяет его зависимостью
+        get_current_user из tusumba-common по публичному ключу Identity (задаётся переменной
+        окружения JWT_PUBLIC_KEY) без обращения к базе.
+        Claims: sub - id пользователя, roles - список ролей ([user] или [moderator]),
+        typ = access, exp. Сервисы принимают только токены с typ = access.
+        roles записываются в access-токен из базы ([users.global_role]) при каждом выпуске:
+        при входе, регистрации и обновлении.
+  parameters:
+    Page:
+      name: page
+      in: query
+      description: Номер страницы, с 1
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    Size:
+      name: size
+      in: query
+      description: Размер страницы
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    FriendRequestId:
+      name: id
+      in: path
+      required: true
+      description: Идентификатор запроса в друзья (friend_requests.id)
+      schema:
+        type: string
+        format: uuid
+  responses:
+    ValidationError:
+      description: |
+        validation_error - тело или параметры запроса не прошли проверку.
+        Ответ формирует обработчик ошибок tusumba-common (install_error_handlers).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: |
+        Ошибки проверки токена из tusumba-common:
+        not_authenticated - «Требуется авторизация» (нет заголовка Authorization);
+        token_expired - «Срок действия токена истёк» (клиенту нужно вызвать /v1/auth/refresh);
+        invalid_token - «Недействительный токен» (подпись неверна, токен испорчен или не access).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    FriendRequestNotFound:
+      description: |
+        friend_request_not_found - «Запрос в друзья не найден.»
+        Запроса нет или он адресован другому пользователю.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    FriendRequestNotPending:
+      description: |
+        friend_request_not_pending - «Запрос уже обработан.»
+        Решение не меняется; текущий статус клиент получает из GET /v1/friend-requests.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    InternalError:
+      description: internal_error - «Произошла ошибка. Попробуйте позже.»
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
+    UserPublic:
+      type: object
+      description: Публичные данные пользователя, без email
+      required: [id, nickname]
+      properties:
+        id:
+          type: string
+          format: uuid
+        nickname:
+          type: string
+    UserPrivate:
+      type: object
+      description: Данные текущего пользователя
+      required: [id, email, nickname, global_role, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        nickname:
+          type: string
+        global_role:
+          type: string
+          enum: [user, moderator]
+        created_at:
+          type: string
+          format: date-time
+    RegisterRequest:
+      type: object
+      required: [email, password, nickname]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+          description: Уникален без учёта регистра
+        password:
+          type: string
+          format: password
+          minLength: 8
+          maxLength: 128
+        nickname:
+          type: string
+          minLength: 3
+          maxLength: 32
+          pattern: '^[A-Za-z0-9_.-]+$'
+          description: Уникален без учёта регистра, используется как логин для входа
+    LoginRequest:
+      type: object
+      required: [login, password]
+      properties:
+        login:
+          type: string
+          minLength: 1
+          description: Почта или ник
+        password:
+          type: string
+          format: password
+          minLength: 1
+    RefreshRequest:
+      type: object
+      required: [refresh_token]
+      properties:
+        refresh_token:
+          type: string
+    TokenPair:
+      type: object
+      required: [access_token, refresh_token, expires_in]
+      properties:
+        access_token:
+          type: string
+          description: JWT RS256 с typ = access, передаётся в заголовке Authorization
+        refresh_token:
+          type: string
+          description: |
+            JWT RS256 с claims sub, typ = refresh, exp; ролей не содержит.
+            Передаётся только в POST /v1/auth/refresh.
+        expires_in:
+          type: integer
+          description: Время жизни access-токена, секунды
+    AuthResponse:
+      description: Пара токенов и данные пользователя
+      allOf:
+        - $ref: '#/components/schemas/TokenPair'
+        - type: object
+          required: [user]
+          properties:
+            user:
+              $ref: '#/components/schemas/UserPrivate'
+    RecipientRequest:
+      type: object
+      description: Адресат запроса в друзья или приглашения
+      required: [to_user_id]
+      properties:
+        to_user_id:
+          type: string
+          format: uuid
+    FriendRequest:
+      type: object
+      required: [id, from_user, to_user, status, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        from_user:
+          $ref: '#/components/schemas/UserPublic'
+        to_user:
+          $ref: '#/components/schemas/UserPublic'
+        status:
+          type: string
+          enum: [pending, accepted, declined]
+        created_at:
+          type: string
+          format: date-time
+    Friend:
+      type: object
+      required: [user, since]
+      properties:
+        user:
+          $ref: '#/components/schemas/UserPublic'
+        since:
+          type: string
+          format: date-time
+          description: Когда пользователи стали друзьями (friendships.created_at)
+    EventInvitation:
+      type: object
+      required: [id, event_id, from_user, to_user, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        event_id:
+          type: string
+          format: uuid
+        from_user:
+          $ref: '#/components/schemas/UserPublic'
+        to_user:
+          $ref: '#/components/schemas/UserPublic'
+        created_at:
+          type: string
+          format: date-time
+    PageInfo:
+      type: object
+      required: [total, page, size]
+      properties:
+        total:
+          type: integer
+          description: Всего элементов
+        page:
+          type: integer
+        size:
+          type: integer
+    UserSearchItem:
+      description: Найденный пользователь со статусом дружбы с текущим пользователем
+      allOf:
+        - $ref: '#/components/schemas/UserPublic'
+        - type: object
+          required: [friendship_status, friend_request_id]
+          properties:
+            friendship_status:
+              type: string
+              enum: [none, request_sent, request_received, friends]
+              description: |
+                none - не друзья, ожидающих запросов нет, можно отправить запрос;
+                request_sent - текущий пользователь отправил запрос, ждёт ответа;
+                request_received - этот пользователь отправил запрос текущему;
+                friends - уже друзья.
+            friend_request_id:
+              type: string
+              format: uuid
+              nullable: true
+              description: |
+                Id ожидающего запроса при request_sent и request_received, иначе null.
+                При request_received по нему можно сразу принять или отклонить запрос.
+    UserList:
+      allOf:
+        - $ref: '#/components/schemas/PageInfo'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/UserSearchItem'
+    FriendRequestList:
+      allOf:
+        - $ref: '#/components/schemas/PageInfo'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/FriendRequest'
+    FriendList:
+      allOf:
+        - $ref: '#/components/schemas/PageInfo'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/Friend'
+    EventInvitationList:
+      allOf:
+        - $ref: '#/components/schemas/PageInfo'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/EventInvitation'
+    Error:
+      type: object
+      description: Единый формат ошибок tusumba-common (ApiError)
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: Код ошибки для клиента
+              enum:
+                - validation_error
+                - not_authenticated
+                - token_expired
+                - invalid_token
+                - invalid_credentials
+                - invalid_refresh_token
+                - not_friends
+                - user_not_found
+                - friend_request_not_found
+                - event_not_found
+                - user_already_exists
+                - already_friends
+                - friend_request_already_exists
+                - friend_request_not_pending
+                - invitation_already_exists
+                - cannot_friend_self
+                - internal_error
+            message:
+              type: string
+              description: Текст для пользователя

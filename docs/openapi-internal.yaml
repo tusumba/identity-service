@@ -1,0 +1,106 @@
+openapi: 3.0.3
+info:
+  title: Tusumba Identity & Social Internal API
+  version: 1.0.0
+  description: |
+    Внутренний API сервиса Identity & Social - только для других сервисов.
+    Каждый вызов требует сервисный токен в заголовке.
+    Внешний API описан в openapi.yaml.
+
+    Ошибки возвращаются в едином формате tusumba-common: объект error с полями code и message.
+  x-task: https://ai.nsu.ru/issues/18888
+externalDocs:
+  description: Архитектура Tusumba
+  url: https://ai.nsu.ru/projects/tusumba/wiki/Архитектура
+security:
+  - ServiceToken: []
+paths:
+  /internal/users/{id}/friends:
+    get:
+      operationId: getUserFriendsInternal
+      summary: Друзья пользователя для других сервисов
+      description: |
+        Нужен Ticketing для списка «кто из друзей идёт»: Ticketing получает друзей пользователя
+        и пересекает их со своими регистрациями на мероприятие.
+        Возвращает всех друзей одним списком, без пагинации.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Идентификатор пользователя (users.id)
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Друзья пользователя
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FriendList'
+        '403':
+          description: forbidden - сервисный токен отсутствует или неверен (require_service)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: user_not_found - пользователь не найден
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: validation_error - id не является uuid
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: internal_error - внутренняя ошибка
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+components:
+  securitySchemes:
+    ServiceToken:
+      type: apiKey
+      in: header
+      name: X-Service-Token
+      description: |
+        Общий сервисный токен, значение из переменной окружения SERVICE_TOKEN.
+        InternalClient из tusumba-common добавляет заголовок сам, эндпоинт проверяет его
+        зависимостью require_service; запрос без верного токена получает 403 forbidden.
+  schemas:
+    UserPublic:
+      type: object
+      required: [id, nickname]
+      properties:
+        id:
+          type: string
+          format: uuid
+        nickname:
+          type: string
+    FriendList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserPublic'
+    Error:
+      type: object
+      description: Единый формат ошибок tusumba-common (ApiError)
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [forbidden, user_not_found, validation_error, internal_error]
+            message:
+              type: string
