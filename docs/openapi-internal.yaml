@@ -7,7 +7,8 @@ info:
     Каждый вызов требует сервисный токен в заголовке.
     Внешний API описан в openapi.yaml.
 
-    Ошибки возвращаются в едином формате tusumba-common: объект error с полями code и message.
+    Ошибки возвращаются в едином формате tusumba-common: объект error с полями code и message,
+    для validation_error дополнительно details по полям.
   x-task: https://ai.nsu.ru/issues/18888
 externalDocs:
   description: Архитектура Tusumba
@@ -92,7 +93,7 @@ components:
             $ref: '#/components/schemas/UserPublic'
     Error:
       type: object
-      description: Единый формат ошибок tusumba-common (ApiError)
+      description: Ошибка в едином формате всех сервисов (tusumba-common, #18886)
       required: [error]
       properties:
         error:
@@ -101,6 +102,18 @@ components:
           properties:
             code:
               type: string
-              enum: [forbidden, user_not_found, validation_error, internal_error]
+              description: Машинный код ошибки для клиента
             message:
               type: string
+              description: Сообщение для пользователя
+            details:
+              type: array
+              description: Ошибки по отдельным полям (для validation_error)
+              items:
+                type: object
+                required: [field, message]
+                properties:
+                  field:
+                    type: string
+                  message:
+                    type: string

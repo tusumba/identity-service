@@ -11,7 +11,8 @@ info:
     Закрывает требования: #18109, #18117, #18118, #18990, #18998.
 
     Ошибки, включая ошибки валидации (422), возвращаются в едином формате tusumba-common:
-    объект error с полями code (код для клиента) и message (текст для пользователя).
+    объект error с полями code (код для клиента) и message (текст для пользователя),
+    для validation_error дополнительно details по полям.
 
     Списки постраничные: параметры page (с 1) и size (по умолчанию 20, максимум 100),
     в ответе items, total, page, size. В вики указана cursor-пагинация; единый вариант
@@ -747,7 +748,7 @@ components:
                 $ref: '#/components/schemas/EventInvitation'
     Error:
       type: object
-      description: Единый формат ошибок tusumba-common (ApiError)
+      description: Ошибка в едином формате всех сервисов (tusumba-common, #18886)
       required: [error]
       properties:
         error:
@@ -756,25 +757,18 @@ components:
           properties:
             code:
               type: string
-              description: Код ошибки для клиента
-              enum:
-                - validation_error
-                - not_authenticated
-                - token_expired
-                - invalid_token
-                - invalid_credentials
-                - invalid_refresh_token
-                - not_friends
-                - user_not_found
-                - friend_request_not_found
-                - event_not_found
-                - user_already_exists
-                - already_friends
-                - friend_request_already_exists
-                - friend_request_not_pending
-                - invitation_already_exists
-                - cannot_friend_self
-                - internal_error
+              description: Машинный код ошибки для клиента
             message:
               type: string
-              description: Текст для пользователя
+              description: Сообщение для пользователя
+            details:
+              type: array
+              description: Ошибки по отдельным полям (для validation_error)
+              items:
+                type: object
+                required: [field, message]
+                properties:
+                  field:
+                    type: string
+                  message:
+                    type: string
