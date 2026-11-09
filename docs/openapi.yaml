@@ -13,10 +13,11 @@ info:
     Ошибки, включая ошибки валидации (422), возвращаются в едином формате tusumba-common:
     объект error с полями code (код для клиента) и message (текст для пользователя),
     для validation_error дополнительно details по полям.
+    При ответе 5xx сервер отдаёт internal_error с общим текстом tusumba-common, а клиент
+    показывает текст «... Попробуйте позже.» из требования, указанный у операции, как в остальных сервисах.
 
     Списки постраничные: параметры page (с 1) и size (по умолчанию 20, максимум 100),
-    в ответе items, total, page, size. В вики указана cursor-пагинация; единый вариант
-    нужно утвердить до реализации клиента.
+    в ответе items, total, page, size.
   x-task: https://ai.nsu.ru/issues/18888
 externalDocs:
   description: Архитектура Tusumba
@@ -68,7 +69,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '500':
-          description: internal_error - «Не удалось зарегистрироваться. Попробуйте позже.»
+          description: internal_error; клиент показывает «Не удалось зарегистрироваться. Попробуйте позже.» (#18109)
           content:
             application/json:
               schema:
@@ -115,7 +116,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '500':
-          description: internal_error - «Не удалось войти. Попробуйте позже.»
+          description: internal_error; клиент показывает «Не удалось войти. Попробуйте позже.» (#18990)
           content:
             application/json:
               schema:
@@ -359,7 +360,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '500':
-          description: internal_error - «Не удалось отправить запрос в друзья. Попробуйте позже.»
+          description: internal_error; клиент показывает «Не удалось отправить запрос в друзья. Попробуйте позже.» (#18117)
           content:
             application/json:
               schema:
@@ -510,7 +511,7 @@ paths:
                 $ref: '#/components/schemas/Error'
         '404':
           description: |
-            event_not_found - «Мероприятие не найдено.» (не существует или не опубликовано)
+            event_not_found - «Мероприятие недоступно.» (не существует или не опубликовано; текст как в Events, #18113)
             user_not_found - «Пользователь не найден.»
           content:
             application/json:
@@ -523,7 +524,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '500':
-          description: internal_error - «Не удалось отправить приглашение. Попробуйте позже.»
+          description: internal_error; клиент показывает «Не удалось отправить приглашение. Попробуйте позже.» (#18118)
           content:
             application/json:
               schema:
@@ -625,7 +626,10 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
     InternalError:
-      description: internal_error - «Произошла ошибка. Попробуйте позже.»
+      description: |
+        internal_error - «Внутренняя ошибка сервера» (общий текст tusumba-common).
+        Клиент показывает текст «... Попробуйте позже.» из требования операции,
+        а если у операции его нет - «Произошла ошибка. Попробуйте позже.»
       content:
         application/json:
           schema:
