@@ -104,7 +104,7 @@ async def test_token_passes_check_in_another_service(
     install_error_handlers(other)
 
     @other.get("/whoami")
-    async def whoami(user: CurrentUser = Depends(get_current_user)) -> dict[str, Any]:  # noqa: B008
+    async def whoami(user: CurrentUser = Depends(get_current_user)) -> dict[str, Any]:
         return {"id": user.id, "roles": user.roles}
 
     body = await register(client)
