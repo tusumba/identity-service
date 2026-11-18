@@ -10,7 +10,7 @@
 - поиск пользователей со статусом дружбы, запросы в друзья (отправка, входящие и отправленные, принятие и отклонение), список друзей;
 - приглашение друга на мероприятие и входящие приглашения.
 
-База данных `identity_db`: `users`, `refresh_tokens`, `friend_requests`, `friendships`, `event_invitations` (в миграциях пока `users` и `refresh_tokens`).
+База данных `identity_db`: `users`, `refresh_tokens`, `friend_requests`, `friendships`, `event_invitations` (в миграциях пока нет `event_invitations`).
 
 ## API
 

@@ -30,6 +30,12 @@ class User(Base):
 
 Index("uq_users_email_lower", func.lower(User.email), unique=True)
 Index("uq_users_nickname_lower", func.lower(User.nickname), unique=True)
+Index(
+    "ix_users_nickname_lower_trgm",
+    func.lower(User.nickname).label("nickname_lower"),
+    postgresql_using="gin",
+    postgresql_ops={"nickname_lower": "gin_trgm_ops"},
+)
 
 
 class RefreshToken(Base):
